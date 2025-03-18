@@ -8,6 +8,7 @@ author: Zheng Zh (@Zhengzh)
 
 import sys
 import pathlib
+
 root_dir = pathlib.Path(__file__).parent.parent.parent
 sys.path.append(str(root_dir))
 
@@ -32,21 +33,26 @@ VRX = [LF, LF, -LB, -LB, LF]
 VRY = [W / 2, -W / 2, -W / 2, W / 2, W / 2]
 
 
-def check_car_collision(x_list, y_list, yaw_list, ox, oy, kd_tree):
-    for i_x, i_y, i_yaw in zip(x_list, y_list, yaw_list):
-        cx = i_x + BUBBLE_DIST * cos(i_yaw)
-        cy = i_y + BUBBLE_DIST * sin(i_yaw)
+def collision(x_list, y_list, yaw_list, ox, oy, kd_tree):
+    x = np.array(x_list)
+    y = np.array(y_list)
 
-        ids = kd_tree.query_ball_point([cx, cy], BUBBLE_R)
+    query_points = np.vstack([x, y]).T
 
-        if not ids:
+    # find all obstacle ids potentially colliding with the path
+    ids = kd_tree.query_ball_point(query_points, BUBBLE_R)
+
+    for i, (i_x, i_y, i_yaw) in enumerate(zip(x_list, y_list, yaw_list)):
+        if not ids[i]:
             continue
 
-        if not rectangle_check(i_x, i_y, i_yaw,
-                               [ox[i] for i in ids], [oy[i] for i in ids]):
-            return False  # collision
+        # do a precise rectanglular check for collisions
+        if rectangle_check(
+            i_x, i_y, i_yaw, [ox[j] for j in ids[i]], [oy[j] for j in ids[i]]
+        ):
+            return True  # collision
 
-    return True  # no collision
+    return False  # no collision
 
 
 def rectangle_check(x, y, yaw, ox, oy):
@@ -59,30 +65,39 @@ def rectangle_check(x, y, yaw, ox, oy):
         rx, ry = converted_xy[0], converted_xy[1]
 
         if not (rx > LF or rx < -LB or ry > W / 2.0 or ry < -W / 2.0):
-            return False  # collision
+            return True  # collision
 
-    return True  # no collision
+    return False  # no collision
 
 
 def plot_arrow(x, y, yaw, length=1.0, width=0.5, fc="r", ec="k"):
     """Plot arrow."""
     if not isinstance(x, float):
-        for (i_x, i_y, i_yaw) in zip(x, y, yaw):
+        for i_x, i_y, i_yaw in zip(x, y, yaw):
             plot_arrow(i_x, i_y, i_yaw)
     else:
-        plt.arrow(x, y, length * cos(yaw), length * sin(yaw),
-                  fc=fc, ec=ec, head_width=width, head_length=width, alpha=0.4)
+        plt.arrow(
+            x,
+            y,
+            length * cos(yaw),
+            length * sin(yaw),
+            fc=fc,
+            ec=ec,
+            head_width=width,
+            head_length=width,
+            alpha=0.4,
+        )
 
 
 def plot_car(x, y, yaw):
-    car_color = '-k'
+    car_color = "-k"
     c, s = cos(yaw), sin(yaw)
     rot = rot_mat_2d(-yaw)
     car_outline_x, car_outline_y = [], []
     for rx, ry in zip(VRX, VRY):
         converted_xy = np.stack([rx, ry]).T @ rot
-        car_outline_x.append(converted_xy[0]+x)
-        car_outline_y.append(converted_xy[1]+y)
+        car_outline_x.append(converted_xy[0] + x)
+        car_outline_y.append(converted_xy[1] + y)
 
     arrow_x, arrow_y, arrow_yaw = c * 1.5 + x, s * 1.5 + y, yaw
     plot_arrow(arrow_x, arrow_y, arrow_yaw)
@@ -90,6 +105,7 @@ def plot_car(x, y, yaw):
     plt.plot(car_outline_x, car_outline_y, car_color)
 
 
+# convert angle to be between -pi and pi
 def pi_2_pi(angle):
     return (angle + pi) % (2 * pi) - pi
 
@@ -103,11 +119,11 @@ def move(x, y, yaw, distance, steer, L=WB):
 
 
 def main():
-    x, y, yaw = 0., 0., 1.
-    plt.axis('equal')
+    x, y, yaw = 0.0, 0.0, 1.0
+    plt.axis("equal")
     plot_car(x, y, yaw)
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -17,7 +17,6 @@ show_animation = False
 
 
 class Node:
-
     def __init__(self, x, y, cost, parent_index):
         self.x = x
         self.y = y
@@ -25,21 +24,15 @@ class Node:
         self.parent_index = parent_index
 
     def __str__(self):
-        return str(self.x) + "," + str(self.y) + "," + str(
-            self.cost) + "," + str(self.parent_index)
-
-
-def calc_final_path(goal_node, closed_node_set, resolution):
-    # generate final course
-    rx, ry = [goal_node.x * resolution], [goal_node.y * resolution]
-    parent_index = goal_node.parent_index
-    while parent_index != -1:
-        n = closed_node_set[parent_index]
-        rx.append(n.x * resolution)
-        ry.append(n.y * resolution)
-        parent_index = n.parent_index
-
-    return rx, ry
+        return (
+            str(self.x)
+            + ","
+            + str(self.y)
+            + ","
+            + str(self.cost)
+            + ","
+            + str(self.parent_index)
+        )
 
 
 def calc_distance_heuristic(gx, gy, ox, oy, resolution, rr):
@@ -57,18 +50,26 @@ def calc_distance_heuristic(gx, gy, ox, oy, resolution, rr):
     oy = [ioy / resolution for ioy in oy]
 
     obstacle_map, min_x, min_y, max_x, max_y, x_w, y_w = calc_obstacle_map(
-        ox, oy, resolution, rr)
+        ox, oy, resolution, rr
+    )
 
     motion = get_motion_model()
 
     open_set, closed_set = dict(), dict()
+
+    # add the start node to the open set and the priority heap with a cost of 0
     open_set[calc_index(goal_node, x_w, min_x, min_y)] = goal_node
     priority_queue = [(0, calc_index(goal_node, x_w, min_x, min_y))]
 
     while True:
         if not priority_queue:
             break
-        cost, c_id = heapq.heappop(priority_queue)
+
+        # get the index of the node with the lowest cost
+        _, c_id = heapq.heappop(priority_queue)
+
+        # if the node with the lowst cost is in the open set
+        # this is our current node. Remove it from the open set and add it to the closed set
         if c_id in open_set:
             current = open_set[c_id]
             closed_set[c_id] = current
@@ -81,38 +82,42 @@ def calc_distance_heuristic(gx, gy, ox, oy, resolution, rr):
             plt.plot(current.x * resolution, current.y * resolution, "xc")
             # for stopping simulation with the esc key.
             plt.gcf().canvas.mpl_connect(
-                'key_release_event',
-                lambda event: [exit(0) if event.key == 'escape' else None])
+                "key_release_event",
+                lambda event: [exit(0) if event.key == "escape" else None],
+            )
             if len(closed_set.keys()) % 10 == 0:
                 plt.pause(0.001)
 
-        # Remove the item from the open set
-
-        # expand search grid based on motion model
+        # look through the neighbours of the current node according to the motion model
         for i, _ in enumerate(motion):
-            node = Node(current.x + motion[i][0],
-                        current.y + motion[i][1],
-                        current.cost + motion[i][2], c_id)
+            node = Node(
+                current.x + motion[i][0],
+                current.y + motion[i][1],
+                current.cost + motion[i][2],
+                c_id,
+            )
             n_id = calc_index(node, x_w, min_x, min_y)
 
+            # if we already closed this node, move to next one
             if n_id in closed_set:
                 continue
 
+            # if node is outside the grid or on an obstacle we cannot compute a cost
             if not verify_node(node, obstacle_map, min_x, min_y, max_x, max_y):
                 continue
 
             if n_id not in open_set:
                 open_set[n_id] = node  # Discover a new node
                 heapq.heappush(
-                    priority_queue,
-                    (node.cost, calc_index(node, x_w, min_x, min_y)))
+                    priority_queue, (node.cost, calc_index(node, x_w, min_x, min_y))
+                )
             else:
                 if open_set[n_id].cost >= node.cost:
                     # This path is the best until now. record it!
                     open_set[n_id] = node
                     heapq.heappush(
-                        priority_queue,
-                        (node.cost, calc_index(node, x_w, min_x, min_y)))
+                        priority_queue, (node.cost, calc_index(node, x_w, min_x, min_y))
+                    )
 
     return closed_set
 
@@ -133,7 +138,15 @@ def verify_node(node, obstacle_map, min_x, min_y, max_x, max_y):
     return True
 
 
-def calc_obstacle_map(ox, oy, resolution, vr):
+def calc_obstacle_map(ox, oy, resolution, rr):
+    """
+    Converts the lists of x and y coordinates of the obstacles to
+    an equidistant 2D array for easier lookup
+    ox: list of x coordinates of obstacles
+    oy: list of y coordinates of obstacles
+    resolution: grid resolution [m]
+    rr: robot radius[m]
+    """
     min_x = round(min(ox))
     min_y = round(min(oy))
     max_x = round(max(ox))
@@ -151,7 +164,7 @@ def calc_obstacle_map(ox, oy, resolution, vr):
             #  print(x, y)
             for iox, ioy in zip(ox, oy):
                 d = math.hypot(iox - x, ioy - y)
-                if d <= vr / resolution:
+                if d <= rr / resolution:
                     obstacle_map[ix][iy] = True
                     break
 
@@ -159,18 +172,29 @@ def calc_obstacle_map(ox, oy, resolution, vr):
 
 
 def calc_index(node, x_width, x_min, y_min):
+    """
+    Converts the two dimensional adressing in x and y
+    to a single dimension address
+    """
     return (node.y - y_min) * x_width + (node.x - x_min)
 
 
 def get_motion_model():
+    """
+    Calculates all possible motions for a holonomic robot and their associated costs
+    The holonomic motion model allows for motion in each direction including diagonally
+    The cost equals the distance needed to travel to move from one grid square to the next
+    """
     # dx, dy, cost
-    motion = [[1, 0, 1],
-              [0, 1, 1],
-              [-1, 0, 1],
-              [0, -1, 1],
-              [-1, -1, math.sqrt(2)],
-              [-1, 1, math.sqrt(2)],
-              [1, -1, math.sqrt(2)],
-              [1, 1, math.sqrt(2)]]
+    motion = [
+        [1, 0, 1],
+        [0, 1, 1],
+        [-1, 0, 1],
+        [0, -1, 1],
+        [-1, -1, math.sqrt(2)],
+        [-1, 1, math.sqrt(2)],
+        [1, -1, math.sqrt(2)],
+        [1, 1, math.sqrt(2)],
+    ]
 
     return motion

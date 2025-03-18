@@ -19,11 +19,11 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 
 from dynamic_programming_heuristic import calc_distance_heuristic
 from ReedsSheppPath import reeds_shepp_path_planning as rs
-from car import move, check_car_collision, MAX_STEER, WB, plot_car, BUBBLE_R
+from car import move, collision, MAX_STEER, WB, plot_car, BUBBLE_R
 
 XY_GRID_RESOLUTION = 2.0  # [m]
 YAW_GRID_RESOLUTION = np.deg2rad(15.0)  # [rad]
-MOTION_RESOLUTION = 0.1  # [m] path interpolate resolution
+MOTION_RESOLUTION = 0.5  # [m] path interpolate resolution
 N_STEER = 20  # number of steer command
 
 SB_COST = 100.0  # switch back penalty cost
@@ -54,11 +54,15 @@ class Node:
         self.y_index = y_ind
         self.yaw_index = yaw_ind
         self.direction = direction
-        self.x_list = x_list
-        self.y_list = y_list
-        self.yaw_list = yaw_list
-        self.directions = directions
-        self.steer = steer
+        self.x_list = (
+            x_list  # list of x coordinates to reach this node from the previous node
+        )
+        self.y_list = (
+            y_list  # list of y coordinates to reach this node from the previous node
+        )
+        self.yaw_list = yaw_list  # list of yaw coordinates to reach this node from the previous node
+        self.directions = directions  # list of movement directions to reach this node from the previous node
+        self.steer = steer  # last steering command while reaching this node from the previous node
         self.parent_index = parent_index
         self.cost = cost
 
@@ -89,21 +93,28 @@ class Config:
         self.max_x = round(max_x_m / xy_resolution)
         self.max_y = round(max_y_m / xy_resolution)
 
-        self.x_w = round(self.max_x - self.min_x)
-        self.y_w = round(self.max_y - self.min_y)
+        self.x_w = round(self.max_x - self.min_x)  # width in x direction
+        self.y_w = round(self.max_y - self.min_y)  # width in y direction
 
         self.min_yaw = round(-math.pi / yaw_resolution) - 1
         self.max_yaw = round(math.pi / yaw_resolution)
-        self.yaw_w = round(self.max_yaw - self.min_yaw)
+        self.yaw_w = round(self.max_yaw - self.min_yaw)  # width in yaw direction
 
 
 def calc_motion_inputs():
+    """
+    Calculates all possible combinations of steering angles and movement direction
+    aka the motion model
+    """
     for steer in np.concatenate((np.linspace(-MAX_STEER, MAX_STEER, N_STEER), [0.0])):
         for d in [1, -1]:
             yield [steer, d]
 
 
 def get_neighbors(current, config, ox, oy, kd_tree):
+    """
+    Calculates all neighbors of the current node using the motion model
+    """
     for steer, d in calc_motion_inputs():
         node = calc_next_node(current, steer, d, config, ox, oy, kd_tree)
         if node and verify_index(node, config):
@@ -115,6 +126,8 @@ def calc_next_node(current, steer, direction, config, ox, oy, kd_tree):
 
     arc_l = XY_GRID_RESOLUTION * 1.5
     x_list, y_list, yaw_list, direction_list = [], [], [], []
+
+    # simulate the movement of the car for arc_l distance with the specified control inputs
     for _ in np.arange(0, arc_l, MOTION_RESOLUTION):
         x, y, yaw = move(x, y, yaw, MOTION_RESOLUTION * direction, steer)
         x_list.append(x)
@@ -122,8 +135,11 @@ def calc_next_node(current, steer, direction, config, ox, oy, kd_tree):
         yaw_list.append(yaw)
         direction_list.append(direction == 1)
 
-    if not check_car_collision(x_list, y_list, yaw_list, ox, oy, kd_tree):
+    if collision(x_list, y_list, yaw_list, ox, oy, kd_tree):
         return None
+
+    if show_animation:
+        plt.plot(x_list, y_list, "-g")
 
     d = direction == 1
     x_ind = round(x / XY_GRID_RESOLUTION)
@@ -187,7 +203,7 @@ def analytic_expansion(current, goal, ox, oy, kd_tree):
     best_path, best = None, None
 
     for path in paths:
-        if check_car_collision(path.x, path.y, path.yaw, ox, oy, kd_tree):
+        if not collision(path.x, path.y, path.yaw, ox, oy, kd_tree):
             cost = calc_rs_path_cost(path)
             if not best or best > cost:
                 best = cost
@@ -197,6 +213,15 @@ def analytic_expansion(current, goal, ox, oy, kd_tree):
 
 
 def update_node_with_analytic_expansion(current, goal, c, ox, oy, kd_tree):
+    """
+    Checks if it is possible to reach the goal from the current node with a reeds shepp path
+    current: current node
+    goal: goal node
+    c: config
+    ox: list of x coordinates of obstacles
+    oy: list of y coordinates of obstacles
+    kd_tree: KD Tree of obstacles positions
+    """
     path = analytic_expansion(current, goal, ox, oy, kd_tree)
 
     if path:
@@ -227,9 +252,9 @@ def update_node_with_analytic_expansion(current, goal, c, ox, oy, kd_tree):
             parent_index=f_parent_index,
             steer=f_steer,
         )
-        return True, f_path
+        return f_path
 
-    return False, None
+    return None
 
 
 def calc_rs_path_cost(reed_shepp_path):
@@ -280,6 +305,7 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
     start[2], goal[2] = rs.pi_2_pi(start[2]), rs.pi_2_pi(goal[2])
     tox, toy = ox[:], oy[:]
 
+    # save obstacles in KD tree for faster spatial search
     obstacle_kd_tree = cKDTree(np.vstack((tox, toy)).T)
 
     config = Config(tox, toy, xy_resolution, yaw_resolution)
@@ -308,6 +334,9 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
 
     openList, closedList = {}, {}
 
+    # calculate the heuristic h(n) for each node an at once
+    # this heuristic measures the estimated cost from the node to the goal
+    # this heuristic uses a simple holonomic motion model with 8 movement directions
     h_dp = calc_distance_heuristic(
         goal_node.x_list[-1], goal_node.y_list[-1], ox, oy, xy_resolution, BUBBLE_R
     )
@@ -324,11 +353,16 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
             print("Error: Cannot find path, No open set")
             return Path([], [], [], [], 0)
 
-        cost, c_id = heapq.heappop(pq)
+        # get the node with the lowest cost
+        _, c_id = heapq.heappop(pq)
+
+        # if the node is in the open set
+        # add it to the closed set and remove it from the open set...
         if c_id in openList:
             current = openList.pop(c_id)
             closedList[c_id] = current
         else:
+            # ... otherwise continue to the next node
             continue
 
         if show_animation:  # pragma: no cover
@@ -341,21 +375,29 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
             if len(closedList.keys()) % 10 == 0:
                 plt.pause(0.001)
 
-        is_updated, final_path = update_node_with_analytic_expansion(
+        # check if we can get a direct path from the current node to the goal
+        # using reeeds shepp paths ...
+        final_path = update_node_with_analytic_expansion(
             current, goal_node, config, ox, oy, obstacle_kd_tree
         )
 
-        if is_updated:
+        if final_path is not None:
+            # ... if yes, then we found our final path
             print("path found")
             break
 
+        # iterate through all the neighbours of the current node using the motion model
         for neighbor in get_neighbors(current, config, ox, oy, obstacle_kd_tree):
             neighbor_index = calc_index(neighbor, config)
+
+            # if the neighbor is already in the closed list
+            # we are done with it and can skip it
             if neighbor_index in closedList:
                 continue
             if (
-                neighbor_index not in openList
-                or openList[neighbor_index].cost > neighbor.cost
+                neighbor_index not in openList  # found a new node
+                or openList[neighbor_index].cost
+                > neighbor.cost  # found a better path for current node
             ):
                 heapq.heappush(pq, (calc_cost(neighbor, h_dp, config), neighbor_index))
                 openList[neighbor_index] = neighbor
@@ -365,8 +407,13 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
 
 
 def calc_cost(n, h_dp, c):
+    """
+    Calculates the cost for a node based on its own cost and the pre computed heuristic cost for this node
+    """
     ind = (n.y_index - c.min_y) * c.x_w + (n.x_index - c.min_x)
-    if ind not in h_dp:
+    if (
+        ind not in h_dp
+    ):  # node is not in the heuristic map because it is either outside the grid or on an obstacle
         return n.cost + 999999999  # collision cost
     return n.cost + H_COST * h_dp[ind].cost
 
@@ -429,6 +476,7 @@ def main():
 
     ox, oy = [], []
 
+    # create the walls as obstacles
     for i in range(60):
         ox.append(i)
         oy.append(0.0)
@@ -488,11 +536,12 @@ def main():
 
 
 if __name__ == "__main__":
-    # import cProfile
+    import cProfile
+
     # profiler = cProfile.Profile()
     # profiler.enable()
-    #
+
     main()
 
     # profiler.disable()
-    # profiler.dump_stats("profile.log")
+    # profiler.dump_stats("profile_coarse_resolution.log")
