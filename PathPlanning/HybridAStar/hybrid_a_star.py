@@ -13,7 +13,9 @@ import numpy as np
 from scipy.spatial import cKDTree
 import sys
 import pathlib
-sys.path.append(str(pathlib.Path(__file__).parent.parent))
+import time
+
+sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 
 from dynamic_programming_heuristic import calc_distance_heuristic
 from ReedsSheppPath import reeds_shepp_path_planning as rs
@@ -30,14 +32,24 @@ STEER_CHANGE_COST = 5.0  # steer angle change penalty cost
 STEER_COST = 1.0  # steer angle change penalty cost
 H_COST = 5.0  # Heuristic cost
 
-show_animation = True
+show_animation = False
 
 
 class Node:
-
-    def __init__(self, x_ind, y_ind, yaw_ind, direction,
-                 x_list, y_list, yaw_list, directions,
-                 steer=0.0, parent_index=None, cost=None):
+    def __init__(
+        self,
+        x_ind,
+        y_ind,
+        yaw_ind,
+        direction,
+        x_list,
+        y_list,
+        yaw_list,
+        directions,
+        steer=0.0,
+        parent_index=None,
+        cost=None,
+    ):
         self.x_index = x_ind
         self.y_index = y_ind
         self.yaw_index = yaw_ind
@@ -52,7 +64,6 @@ class Node:
 
 
 class Path:
-
     def __init__(self, x_list, y_list, yaw_list, direction_list, cost):
         self.x_list = x_list
         self.y_list = y_list
@@ -62,7 +73,6 @@ class Path:
 
 
 class Config:
-
     def __init__(self, ox, oy, xy_resolution, yaw_resolution):
         min_x_m = min(ox)
         min_y_m = min(oy)
@@ -82,14 +92,13 @@ class Config:
         self.x_w = round(self.max_x - self.min_x)
         self.y_w = round(self.max_y - self.min_y)
 
-        self.min_yaw = round(- math.pi / yaw_resolution) - 1
+        self.min_yaw = round(-math.pi / yaw_resolution) - 1
         self.max_yaw = round(math.pi / yaw_resolution)
         self.yaw_w = round(self.max_yaw - self.min_yaw)
 
 
 def calc_motion_inputs():
-    for steer in np.concatenate((np.linspace(-MAX_STEER, MAX_STEER,
-                                             N_STEER), [0.0])):
+    for steer in np.concatenate((np.linspace(-MAX_STEER, MAX_STEER, N_STEER), [0.0])):
         for d in [1, -1]:
             yield [steer, d]
 
@@ -134,20 +143,21 @@ def calc_next_node(current, steer, direction, config, ox, oy, kd_tree):
 
     cost = current.cost + added_cost + arc_l
 
-    node = Node(x_ind, y_ind, yaw_ind, d, x_list,
-                y_list, yaw_list, direction_list,
-                parent_index=calc_index(current, config),
-                cost=cost, steer=steer)
+    node = Node(
+        x_ind,
+        y_ind,
+        yaw_ind,
+        d,
+        x_list,
+        y_list,
+        yaw_list,
+        direction_list,
+        parent_index=calc_index(current, config),
+        cost=cost,
+        steer=steer,
+    )
 
     return node
-
-
-def is_same_grid(n1, n2):
-    if n1.x_index == n2.x_index \
-            and n1.y_index == n2.y_index \
-            and n1.yaw_index == n2.yaw_index:
-        return True
-    return False
 
 
 def analytic_expansion(current, goal, ox, oy, kd_tree):
@@ -160,9 +170,16 @@ def analytic_expansion(current, goal, ox, oy, kd_tree):
     goal_yaw = goal.yaw_list[-1]
 
     max_curvature = math.tan(MAX_STEER) / WB
-    paths = rs.calc_paths(start_x, start_y, start_yaw,
-                          goal_x, goal_y, goal_yaw,
-                          max_curvature, step_size=MOTION_RESOLUTION)
+    paths = rs.calc_paths(
+        start_x,
+        start_y,
+        start_yaw,
+        goal_x,
+        goal_y,
+        goal_yaw,
+        max_curvature,
+        step_size=MOTION_RESOLUTION,
+    )
 
     if not paths:
         return None
@@ -179,8 +196,7 @@ def analytic_expansion(current, goal, ox, oy, kd_tree):
     return best_path
 
 
-def update_node_with_analytic_expansion(current, goal,
-                                        c, ox, oy, kd_tree):
+def update_node_with_analytic_expansion(current, goal, c, ox, oy, kd_tree):
     path = analytic_expansion(current, goal, ox, oy, kd_tree)
 
     if path:
@@ -198,9 +214,19 @@ def update_node_with_analytic_expansion(current, goal,
             fd.append(d >= 0)
 
         f_steer = 0.0
-        f_path = Node(current.x_index, current.y_index, current.yaw_index,
-                      current.direction, f_x, f_y, f_yaw, fd,
-                      cost=f_cost, parent_index=f_parent_index, steer=f_steer)
+        f_path = Node(
+            current.x_index,
+            current.y_index,
+            current.yaw_index,
+            current.direction,
+            f_x,
+            f_y,
+            f_yaw,
+            fd,
+            cost=f_cost,
+            parent_index=f_parent_index,
+            steer=f_steer,
+        )
         return True, f_path
 
     return False, None
@@ -231,7 +257,7 @@ def calc_rs_path_cost(reed_shepp_path):
     u_list = [0.0] * n_ctypes
     for i in range(n_ctypes):
         if reed_shepp_path.ctypes[i] == "R":
-            u_list[i] = - MAX_STEER
+            u_list[i] = -MAX_STEER
         elif reed_shepp_path.ctypes[i] == "L":
             u_list[i] = MAX_STEER
 
@@ -258,25 +284,39 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
 
     config = Config(tox, toy, xy_resolution, yaw_resolution)
 
-    start_node = Node(round(start[0] / xy_resolution),
-                      round(start[1] / xy_resolution),
-                      round(start[2] / yaw_resolution), True,
-                      [start[0]], [start[1]], [start[2]], [True], cost=0)
-    goal_node = Node(round(goal[0] / xy_resolution),
-                     round(goal[1] / xy_resolution),
-                     round(goal[2] / yaw_resolution), True,
-                     [goal[0]], [goal[1]], [goal[2]], [True])
+    start_node = Node(
+        round(start[0] / xy_resolution),
+        round(start[1] / xy_resolution),
+        round(start[2] / yaw_resolution),
+        True,
+        [start[0]],
+        [start[1]],
+        [start[2]],
+        [True],
+        cost=0,
+    )
+    goal_node = Node(
+        round(goal[0] / xy_resolution),
+        round(goal[1] / xy_resolution),
+        round(goal[2] / yaw_resolution),
+        True,
+        [goal[0]],
+        [goal[1]],
+        [goal[2]],
+        [True],
+    )
 
     openList, closedList = {}, {}
 
     h_dp = calc_distance_heuristic(
-        goal_node.x_list[-1], goal_node.y_list[-1],
-        ox, oy, xy_resolution, BUBBLE_R)
+        goal_node.x_list[-1], goal_node.y_list[-1], ox, oy, xy_resolution, BUBBLE_R
+    )
 
     pq = []
     openList[calc_index(start_node, config)] = start_node
-    heapq.heappush(pq, (calc_cost(start_node, h_dp, config),
-                        calc_index(start_node, config)))
+    heapq.heappush(
+        pq, (calc_cost(start_node, h_dp, config), calc_index(start_node, config))
+    )
     final_path = None
 
     while True:
@@ -295,28 +335,29 @@ def hybrid_a_star_planning(start, goal, ox, oy, xy_resolution, yaw_resolution):
             plt.plot(current.x_list[-1], current.y_list[-1], "xc")
             # for stopping simulation with the esc key.
             plt.gcf().canvas.mpl_connect(
-                'key_release_event',
-                lambda event: [exit(0) if event.key == 'escape' else None])
+                "key_release_event",
+                lambda event: [exit(0) if event.key == "escape" else None],
+            )
             if len(closedList.keys()) % 10 == 0:
                 plt.pause(0.001)
 
         is_updated, final_path = update_node_with_analytic_expansion(
-            current, goal_node, config, ox, oy, obstacle_kd_tree)
+            current, goal_node, config, ox, oy, obstacle_kd_tree
+        )
 
         if is_updated:
             print("path found")
             break
 
-        for neighbor in get_neighbors(current, config, ox, oy,
-                                      obstacle_kd_tree):
+        for neighbor in get_neighbors(current, config, ox, oy, obstacle_kd_tree):
             neighbor_index = calc_index(neighbor, config)
             if neighbor_index in closedList:
                 continue
-            if neighbor_index not in openList \
-                    or openList[neighbor_index].cost > neighbor.cost:
-                heapq.heappush(
-                    pq, (calc_cost(neighbor, h_dp, config),
-                         neighbor_index))
+            if (
+                neighbor_index not in openList
+                or openList[neighbor_index].cost > neighbor.cost
+            ):
+                heapq.heappush(pq, (calc_cost(neighbor, h_dp, config), neighbor_index))
                 openList[neighbor_index] = neighbor
 
     path = get_final_path(closedList, final_path)
@@ -331,9 +372,11 @@ def calc_cost(n, h_dp, c):
 
 
 def get_final_path(closed, goal_node):
-    reversed_x, reversed_y, reversed_yaw = \
-        list(reversed(goal_node.x_list)), list(reversed(goal_node.y_list)), \
-        list(reversed(goal_node.yaw_list))
+    reversed_x, reversed_y, reversed_yaw = (
+        list(reversed(goal_node.x_list)),
+        list(reversed(goal_node.y_list)),
+        list(reversed(goal_node.yaw_list)),
+    )
     direction = list(reversed(goal_node.directions))
     nid = goal_node.parent_index
     final_cost = goal_node.cost
@@ -369,8 +412,11 @@ def verify_index(node, c):
 
 
 def calc_index(node, c):
-    ind = (node.yaw_index - c.min_yaw) * c.x_w * c.y_w + \
-          (node.y_index - c.min_y) * c.x_w + (node.x_index - c.min_x)
+    ind = (
+        (node.yaw_index - c.min_yaw) * c.x_w * c.y_w
+        + (node.y_index - c.min_y) * c.x_w
+        + (node.x_index - c.min_x)
+    )
 
     if ind <= 0:
         print("Error(calc_index):", ind)
@@ -411,14 +457,18 @@ def main():
 
     if show_animation:
         plt.plot(ox, oy, ".k")
-        rs.plot_arrow(start[0], start[1], start[2], fc='g')
+        rs.plot_arrow(start[0], start[1], start[2], fc="g")
         rs.plot_arrow(goal[0], goal[1], goal[2])
 
         plt.grid(True)
         plt.axis("equal")
 
+    start_time = time.time()
     path = hybrid_a_star_planning(
-        start, goal, ox, oy, XY_GRID_RESOLUTION, YAW_GRID_RESOLUTION)
+        start, goal, ox, oy, XY_GRID_RESOLUTION, YAW_GRID_RESOLUTION
+    )
+    end_time = time.time()
+    print(f"Planning took {end_time-start_time}s")
 
     x = path.x_list
     y = path.y_list
@@ -437,5 +487,12 @@ def main():
     print(__file__ + " done!!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    # import cProfile
+    # profiler = cProfile.Profile()
+    # profiler.enable()
+    #
     main()
+
+    # profiler.disable()
+    # profiler.dump_stats("profile.log")
