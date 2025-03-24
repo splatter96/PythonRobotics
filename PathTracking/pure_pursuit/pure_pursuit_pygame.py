@@ -31,14 +31,17 @@ from PathPlanning.ReedsSheppPath import reeds_shepp_path_planning as rs
 
 # Parameters
 k = 0.0  # look forward gain
-Lfc = 1.7  # [m] look-ahead distance
+# Lfc = 1.7  # [m] look-ahead distance
+Lfc = 0.14  # [m] look-ahead distance
 Kp = 2.0  # speed proportional gain
 dt = 0.1  # [s] time tick
-WB = 2.9  # [m] wheel base of vehicle
+# WB = 2.9  # [m] wheel base of vehicle
+WB = 0.17  # [m] wheel base of vehicle
 
 L = WB  # length of car
 # WB = 3.0  # rear to front wheel
-W = 2.0  # width of car
+# W = 2.0  # width of car
+W = 0.08  # width of car
 LF = 3.3  # distance from rear to vehicle front end
 LB = 1.0  # distance from rear to vehicle back end
 # VRX = [LF, LF, -LB, -LB, LF]
@@ -47,7 +50,8 @@ VRY = [W / 2, -W / 2, -W / 2, W / 2, W / 2]
 
 MAX_STEER = 0.6  # [rad] maximum steering angle
 # MAX_STEER = 0.3  # [rad] maximum steering angle
-MOTION_RESOLUTION = 0.1  # [m] path interpolate resolution
+# MOTION_RESOLUTION = 0.1  # [m] path interpolate resolution
+MOTION_RESOLUTION = 0.01  # [m] path interpolate resolution
 show_animation = False
 
 
@@ -168,10 +172,11 @@ class Renderer:
 
         self.screen = pygame.display.set_mode([panel_size[0], panel_size[1]])
         self.sim_surface = WorldSurface(panel_size, 0, pygame.Surface(panel_size))
-        # self.sim_surface.scaling = 385
-        self.sim_surface.scaling = 15
+        self.sim_surface.scaling = 385
+        # self.sim_surface.scaling = 15
         # self.sim_surface.centering_position = [0.8, -0.8]
-        self.sim_surface.centering_position = [0.2, -0.8]
+        # self.sim_surface.centering_position = [0.2, -0.8]
+        self.sim_surface.centering_position = [0.8, -0.9]
 
         """the world position of the center of the displayed window."""
         self.window_position = np.array([2, 0])
@@ -203,12 +208,14 @@ class Renderer:
                 self.sim_surface.vec2pix(point)
                 # for point in lane.lanelet.polygon.vertices
                 for point in zip(states.x, states.y)
+                # for point in zip(states.front_x, states.front_y)
             ],
             5,
         )
 
         # Render vehicle
-        tire_length, tire_width = 1.0, 0.3
+        # tire_length, tire_width = 1.0, 0.3
+        tire_length, tire_width = 0.035, 0.01
 
         # Vehicle rectangle
         length = L + 2 * tire_length
@@ -383,12 +390,12 @@ class State:
         self.delta = delta
 
     def calc_distance(self, point_x, point_y, v):
-        if v < 0:
-            dx = self.front_x - point_x
-            dy = self.front_y - point_y
+        if v > 0:
+            dx = self.x - point_x
+            dy = self.y - point_y
         else:
-            dx = self.rear_x - point_x
-            dy = self.rear_y - point_y
+            dx = self.x - point_x
+            dy = self.y - point_y
         return math.hypot(dx, dy)
 
     def __str__(self):
@@ -430,6 +437,9 @@ class TargetCourse:
         self.directions = dirs
         self.yaws = yaws
         self.old_nearest_point_index = None
+        self.last_was_cusp = False
+        self.reached_cusp = False
+        self.cusp_ind = -1
 
     def search_target_index(self, state):
         # To speed up nearest point search, doing it at only first time.
@@ -461,29 +471,48 @@ class TargetCourse:
         #
         Lf = k * abs(state.v) + Lfc  # update look ahead distance
 
-        if state.v > 0:
-            dx = [state.rear_x - icx for icx in self.cx]
-            dy = [state.rear_y - icy for icy in self.cy]
-            Lf += WB
+        if state.v < 0:  # and self.cusp_ind > -1:
+            dx = [state.x - icx for icx in self.cx]
+            dy = [state.y - icy for icy in self.cy]
+            # Lf += WB
         else:
-            dx = [state.front_x - icx for icx in self.cx]
-            dy = [state.front_y - icy for icy in self.cy]
-            Lf += WB
+            dx = [state.x - icx for icx in self.cx]
+            dy = [state.y - icy for icy in self.cy]
+            # Lf += WB
         d = np.hypot(dx, dy)
         ind = np.argmin(d)
 
+        ind += 2
+
+        # print(f"{ind=} {self.cusp_ind=}")
+        # if ind == self.cusp_ind:
+        #     self.reached_cusp = True
+        #
+        # print(f"{self.reached_cusp=}")
+
+        # if self.reached_cusp:
+        #     ind += 1
+        #     self.reached_cusp = False
+
         # search look ahead target point index
         current_sign = self.directions[ind]
-        while (
-            state.calc_distance(self.cx[ind], self.cy[ind], state.v) < Lf
-            and current_sign == self.directions[ind]
+        # current_sign = (state.v > 0) * 1
+        # print(current_sign)
+        # print((state.v > 0) * 1)
+        while state.calc_distance(self.cx[ind], self.cy[ind], state.v) < Lf and (
+            current_sign == self.directions[ind] and not self.reached_cusp
         ):
+            # print(f"in loop {ind}")
             if (ind + 1) >= len(self.cx):
                 break  # not exceed goal
             ind += 1
 
         if current_sign != self.directions[ind]:
             ind -= 1
+            # self.cusp_ind = ind
+            # print("found cusp")
+
+        # print(self.last_was_cusp)
 
         self.last_index = ind
 
@@ -511,6 +540,11 @@ def stanley_control(state, trajectory, pind, target_speed):
         tyaw = trajectory.yaws[-1]
         ind = len(trajectory.cx) - 1
 
+    # check if point in front or behind vehicle
+    dx = state.x - tx
+    dy = state.y - ty
+    in_front = (dy * np.sin(state.yaw) + dx * np.cos(state.yaw)) < 0
+
     if state.v < 0:
         dx = state.rear_x - tx
         dy = state.rear_y - ty
@@ -518,30 +552,27 @@ def stanley_control(state, trajectory, pind, target_speed):
         dx = tx - state.front_x
         dy = ty - state.front_y
 
-    front_axle_vec = [-np.cos(state.yaw), -np.sin(state.yaw)]
-    crosstrack_error = np.dot([dx, dy], front_axle_vec)
-
     crosstrack_error = -(dx * np.sin(state.yaw) - dy * np.cos(state.yaw))
 
-    # heading_error = normalise_angle(tyaw - state.yaw - np.pi * 0.5)
-    # heading_error = normalise_angle(tyaw - state.yaw)
-    if state.v < 0:
-        heading_error = tyaw - state.yaw
-    else:
-        heading_error = tyaw - state.yaw
+    heading_error = tyaw - state.yaw
 
-    K = 1.0
-    KSOFT = 1.0
+    if state.v < 0:
+        heading_error = -heading_error
+
+    K = 19.0
+    KSOFT = 0.7
 
     crosstrack_term = np.arctan2((K * crosstrack_error), (KSOFT + abs(target_speed)))
-    # heading_term = normalise_angle(heading_error)
-    heading_term = heading_error
 
-    sigma_t = crosstrack_term  # + heading_term
     if state.v < 0:
-        sigma_t = -sigma_t
+        crosstrack_term = -crosstrack_term
 
-    return sigma_t, ind
+    sigma_t = crosstrack_term  # + heading_error
+    # sigma_t = heading_error
+    # if state.v < 0:
+    #     sigma_t = -sigma_t
+
+    return sigma_t, ind, in_front
 
 
 def pure_pursuit_steer_control(
@@ -613,17 +644,19 @@ def main():
     cx = np.arange(0, 50, 0.5)
     cy = [math.sin(ix / 5.0) * ix / 2.0 for ix in cx]
 
-    start_x = 47.0
-    start_y = 22.0
-    # start_x = 0.0
-    # start_y = 0.0
-    start_yaw = np.deg2rad(-40.0)
+    # start_x = 47.0
+    # start_y = 22.0
+    start_x = -1.0
+    start_y = 1.0
+    start_yaw = np.deg2rad(90.0)
 
-    goal_x = 50.0
-    goal_y = 38.0
+    # goal_x = 50.0
+    # goal_y = 38.0
     # goal_x = 50.0
     # goal_y = -10.0
-    goal_yaw = np.deg2rad(40.0)
+    goal_x = 1.0
+    goal_y = 0.0
+    goal_yaw = np.deg2rad(-100.0)
 
     max_curvature = math.tan(MAX_STEER) / WB
     paths = rs.calc_paths(
@@ -650,7 +683,8 @@ def main():
     # cy = np.load("path_y.npy")[-50:]
     # dirs = np.load("path_dirs.npy")[-50:]
 
-    target_speed = 1.0 / 3.6  # [m/s]
+    # target_speed = 1.0 / 3.6  # [m/s]
+    target_speed = 0.1 / 3.6  # [m/s]
 
     T = 200.0  # max simulation time
 
@@ -672,17 +706,22 @@ def main():
         and state.calc_distance(
             target_course.cx[lastIndex], target_course.cy[lastIndex], state.v
         )
-        > 0.2
+        > 0.02
     ):
-        sign = target_course.directions[target_ind]
-        # print(f"{sign=}")
-        current_target_speed = sign * target_speed
+        # check if current waypoint is in front or behind car
+        # sign = target_course.directions[target_ind]
+        # current_target_speed = sign * target_speed
 
         # Calc control input
         # di, target_ind = pure_pursuit_steer_control(state, target_course, target_ind)
-        di, target_ind = stanley_control(
-            state, target_course, target_ind, current_target_speed
+        di, target_ind, infront = stanley_control(
+            state, target_course, target_ind, target_speed
         )
+
+        if not infront:
+            current_target_speed = -target_speed
+        else:
+            current_target_speed = target_speed
 
         # if not sign:
         #     current_target_speed = -target_speed
