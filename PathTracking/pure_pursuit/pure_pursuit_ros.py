@@ -15,7 +15,7 @@ import rclpy
 from rclpy.node import Node
 
 from nav_msgs.msg import Odometry
-from ackermann_msgs.msg import AckermannDrive
+from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Pose2D
 
 import sys
@@ -33,9 +33,10 @@ from PathPlanning.ReedsSheppPath import reeds_shepp_path_planning as rs
 k = 0.0  # look forward gain
 # Lfc = 1.7  # [m] look-ahead distance
 Lfc = 0.14  # [m] look-ahead distance
+# Lfc = 0.54  # [m] look-ahead distance
 Kp = 2.0  # speed proportional gain
 dt = 0.1  # [s] time tick
-WB = 0.17  # [m] wheel base of vehicle
+WB = 0.10  # [m] wheel base of vehicle
 
 MAX_STEER = 0.6  # [rad] maximum steering angle
 MOTION_RESOLUTION = 0.01  # [m] path interpolate resolution
@@ -68,6 +69,16 @@ class State:
         self.front_x = self.x + ((WB / 2) * math.cos(self.yaw))
         self.front_y = self.y + ((WB / 2) * math.sin(self.yaw))
         self.delta = delta
+
+    def update_external(self, x, y, yaw, v):
+        self.v = v
+        self.yaw = yaw
+        self.x = x
+        self.y = y
+        self.rear_x = self.x - ((WB / 2) * math.cos(self.yaw))
+        self.rear_y = self.y - ((WB / 2) * math.sin(self.yaw))
+        self.front_x = self.x + ((WB / 2) * math.cos(self.yaw))
+        self.front_y = self.y + ((WB / 2) * math.sin(self.yaw))
 
     def calc_distance(self, point_x, point_y, v):
         if v > 0:
@@ -215,9 +226,11 @@ def stanley_control(state, trajectory, pind, target_speed):
     #     heading_error = -heading_error
 
     K = 19.0
-    KSOFT = 0.7
+    KSOFT = 0.97
 
     crosstrack_term = np.arctan2((K * crosstrack_error), (KSOFT + abs(target_speed)))
+
+    # print(state.v)
 
     if state.v < 0:
         crosstrack_term = -crosstrack_term
@@ -259,11 +272,12 @@ class PathTracker(Node):
         self.first = True
         self.start_pose = None
 
-        self.target_speed = 0.1 / 3.6  # [m/s]
+        # self.target_speed = 0.4 / 3.6  # [m/s]
+        self.target_speed = 0.2
         self.target_course = None
 
-        self.pub = self.create_publisher(AckermannDrive, "cmd_vel", 10)
-        self.create_subscription(Pose2D, "odometry/global", self.odom_callback, 10)
+        self.pub = self.create_publisher(AckermannDriveStamped, "/car8/cmd_vel", 10)
+        self.create_subscription(Pose2D, "/car8/ground_pose", self.odom_callback, 10)
 
         self.create_timer(0.1, self.follow_path)
 
@@ -278,15 +292,15 @@ class PathTracker(Node):
 
         goal_x = 1.0
         goal_y = 0.0
-        goal_yaw = np.deg2rad(10.0)
+        goal_yaw = np.deg2rad(90.0)
 
         max_curvature = math.tan(MAX_STEER) / WB
         paths = rs.calc_paths(
             start_x,
-            start_y,
+            start_y + 0.0,
             start_yaw,
             goal_x,
-            goal_y,
+            goal_y + 0.0,
             goal_yaw,
             max_curvature,
             step_size=MOTION_RESOLUTION,
@@ -323,16 +337,17 @@ class PathTracker(Node):
         else:
             current_target_speed = self.target_speed
 
-        ai = proportional_control(current_target_speed, self.state.v)
+        # ai = proportional_control(current_target_speed, self.state.v)
 
-        self.state.update(ai, di)  # Control vehicle
+        # self.state.update(ai, di)  # Control vehicle
 
-        drive_msg = AckermannDrive()
-        drive_msg.steering_angle = di
-        # drive_msg.acceleration = ai
-        drive_msg.speed = current_target_speed
+        drive_msg = AckermannDriveStamped()
+        drive_msg.drive.steering_angle = np.rad2deg(di)
+        # drive_msg.drive.acceleration = ai
+        drive_msg.drive.speed = current_target_speed
         self.pub.publish(drive_msg)
 
+        self.state.delta = di
         self.states.append(self.state)
 
         self.renderer.render(
@@ -347,9 +362,11 @@ class PathTracker(Node):
             self.first = False
             return
 
-        self.state.x = msg.x
-        self.state.y = msg.y
-        self.state.yaw = msg.theta
+        self.state.update_external(msg.x, msg.y, msg.theta, self.target_speed)
+        # self.state.x = msg.x
+        # self.state.y = msg.y
+        # self.state.yaw = msg.theta
+        # self.states.append(self.state)
 
 
 def main(args=None):

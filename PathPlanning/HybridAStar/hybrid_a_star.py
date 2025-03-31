@@ -32,7 +32,7 @@ STEER_CHANGE_COST = 5.0  # steer angle change penalty cost
 STEER_COST = 1.0  # steer angle change penalty cost
 H_COST = 5.0  # Heuristic cost
 
-show_animation = False
+show_animation = True
 
 
 class Node:
@@ -518,18 +518,21 @@ def main():
     end_time = time.time()
     print(f"Planning took {end_time-start_time}s")
 
+    # plt.show()
+    # time.sleep(2)
+
     x = path.x_list
     y = path.y_list
     yaw = path.yaw_list
 
     if show_animation:
         for i_x, i_y, i_yaw in zip(x, y, yaw):
-            plt.cla()
+            # plt.cla()
             plt.plot(ox, oy, ".k")
             plt.plot(x, y, "-r", label="Hybrid A* path")
             plt.grid(True)
             plt.axis("equal")
-            plot_car(i_x, i_y, i_yaw)
+            # plot_car(i_x, i_y, i_yaw)
             plt.pause(0.0001)
 
     print(__file__ + " done!!")

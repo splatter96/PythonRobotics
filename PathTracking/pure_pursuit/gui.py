@@ -129,7 +129,7 @@ class Renderer:
         # self.sim_surface.scaling = 15
         # self.sim_surface.centering_position = [0.8, -0.8]
         # self.sim_surface.centering_position = [0.2, -0.8]
-        self.sim_surface.centering_position = [0.8, -0.9]
+        self.sim_surface.centering_position = [1.1, -0.7]
 
         """the world position of the center of the displayed window."""
         self.window_position = np.array([2, 0])
@@ -154,6 +154,8 @@ class Renderer:
             self.sim_surface.vec2pix([0, -0.2]),
             5,
         )
+        if len(states.x) < 2:
+            return
         # Render planned path
         pygame.draw.lines(
             self.sim_surface,
@@ -321,11 +323,11 @@ class Renderer:
                     for event in pygame.event.get():
                         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                             paused = False
-            elif event.type == pygame.MOUSEBUTTONUP:
-                pix_pos = pygame.Vector2(event.pos)
-                self.road.vehicles[0].position = np.array(
-                    [*self.sim_surface.pix2pos(pix_pos[0], pix_pos[1])]
-                )
+            # elif event.type == pygame.MOUSEBUTTONUP:
+            #     pix_pos = pygame.Vector2(event.pos)
+            #     self.road.vehicles[0].position = np.array(
+            #         [*self.sim_surface.pix2pos(pix_pos[0], pix_pos[1])]
+            #     )
 
             self.sim_surface.handle_event(event)
 
