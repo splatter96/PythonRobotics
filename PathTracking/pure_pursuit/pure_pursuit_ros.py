@@ -273,8 +273,10 @@ class PathTracker(Node):
         self.start_pose = None
 
         # self.target_speed = 0.4 / 3.6  # [m/s]
-        self.target_speed = 0.2
+        self.target_speed = 0.3
         self.target_course = None
+
+        self.renderer = Renderer(None, None)
 
         self.pub = self.create_publisher(AckermannDriveStamped, "/car8/cmd_vel", 10)
         self.create_subscription(Pose2D, "/car8/ground_pose", self.odom_callback, 10)
@@ -290,9 +292,9 @@ class PathTracker(Node):
 
         self.state = State(x=start_x, y=start_y, yaw=start_yaw, v=0.0)
 
-        goal_x = 1.0
-        goal_y = 0.0
-        goal_yaw = np.deg2rad(90.0)
+        goal_x = self.renderer.goal[0]
+        goal_y = self.renderer.goal[1]
+        goal_yaw = self.renderer.goal_angle
 
         max_curvature = math.tan(MAX_STEER) / WB
         paths = rs.calc_paths(
@@ -317,14 +319,28 @@ class PathTracker(Node):
 
         # initial state
         state = State(x=start_x, y=start_y, yaw=start_yaw, v=0.0)
-        self.renderer = Renderer(b_path)
+        # self.renderer = Renderer(b_path, self.stop)
+        self.renderer.path = b_path
+        self.renderer.pause_callback = self.stop
 
         self.states = States()
         self.states.append(state)
         self.target_course = TargetCourse(self.cx, self.cy, dirs, yaws)
         self.target_ind, _ = self.target_course.search_target_index(state)
 
+    def stop(self):
+        drive_msg = AckermannDriveStamped()
+        self.pub.publish(drive_msg)
+        print("spinning")
+        # rclpy.spin_once(self)
+        print("spung")
+
     def follow_path(self):
+        if self.renderer.goal is None:
+            self.renderer.handle_events()
+            self.renderer.render(None, None)
+            return
+
         if self.target_course is None:
             return
 
@@ -356,7 +372,7 @@ class PathTracker(Node):
         self.renderer.handle_events()
 
     def odom_callback(self, msg):
-        if self.first:
+        if self.first and self.renderer.goal is not None:
             self.start_pose = msg
             self.plan_path()
             self.first = False
