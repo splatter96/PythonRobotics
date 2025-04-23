@@ -253,9 +253,15 @@ def main():
     start_y = 1.0
     start_yaw = np.deg2rad(90.0)
 
-    goal_x = 1.0
-    goal_y = 0.0
-    goal_yaw = np.deg2rad(10.0)
+    renderer = Renderer(None, None)
+    while renderer.goal is None:
+        renderer.handle_events()
+        renderer.render(None, None)
+
+    goal_x = renderer.goal[0]
+    goal_y = renderer.goal[1]
+    # goal_yaw = np.deg2rad(10.0)
+    goal_yaw = renderer.goal_angle
 
     max_curvature = math.tan(MAX_STEER) / WB
     paths = rs.calc_paths(
@@ -272,6 +278,8 @@ def main():
     # search minimum cost path
     best_path_index = paths.index(min(paths, key=lambda p: abs(p.L)))
     b_path = paths[best_path_index]
+
+    renderer.path = b_path
 
     cx = b_path.x
     cy = b_path.y
@@ -292,7 +300,6 @@ def main():
     target_course = TargetCourse(cx, cy, dirs, yaws)
     target_ind, _ = target_course.search_target_index(state)
 
-    renderer = Renderer(b_path)
 
     while (
         T >= t
