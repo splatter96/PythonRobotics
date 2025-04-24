@@ -285,16 +285,21 @@ class PathTracker(Node):
 
         self.get_logger().info("Initialized PathTracker")
 
-    def plan_path(self):
+    def init_path_planning(self):
         start_x = self.start_pose.x
         start_y = self.start_pose.y
         start_yaw = self.start_pose.theta
 
         self.state = State(x=start_x, y=start_y, yaw=start_yaw, v=0.0)
 
+    def plan_path(self):
         goal_x = self.renderer.goal[0]
         goal_y = self.renderer.goal[1]
         goal_yaw = self.renderer.goal_angle
+
+        start_x = self.start_pose.x
+        start_y = self.start_pose.y
+        start_yaw = self.start_pose.theta
 
         max_curvature = math.tan(MAX_STEER) / WB
         paths = rs.calc_paths(
@@ -372,6 +377,10 @@ class PathTracker(Node):
         self.renderer.handle_events()
 
     def odom_callback(self, msg):
+        if self.first:
+            self.start_pose = msg
+            self.init_path_planning()
+
         if self.first and self.renderer.goal is not None:
             self.start_pose = msg
             self.plan_path()
