@@ -119,15 +119,16 @@ class WorldSurface(pygame.Surface):
                 self.centering_position[1] += self.MOVING_FACTOR
                 print(f"Center y {self.centering_position[1]}")
 
+
 def draw_arrow(
-        surface: pygame.Surface,
-        start: pygame.Vector2,
-        end: pygame.Vector2,
-        color: pygame.Color,
-        body_width: int = 2,
-        head_width: int = 4,
-        head_height: int = 2,
-    ):
+    surface: pygame.Surface,
+    start: pygame.Vector2,
+    end: pygame.Vector2,
+    color: pygame.Color,
+    body_width: int = 2,
+    head_width: int = 4,
+    head_height: int = 2,
+):
     """Draw an arrow between start and end with the arrow head at the end.
 
     Args:
@@ -175,6 +176,7 @@ def draw_arrow(
 
         pygame.draw.polygon(surface, color, body_verts)
 
+
 class Renderer:
     def __init__(self, path, pause_callback):
         self.path = path
@@ -183,7 +185,9 @@ class Renderer:
         self.goal = None
         self.click_start = None
         self.click_start_pixel = None
-        self.click_end_pixel = pygame.Vector2(0,0)
+        self.click_end_pixel = pygame.Vector2(0, 0)
+        self.hit_point = None
+        self.clicked = False
 
         pygame.init()
         pygame.display.set_caption("PurePursuit")  # Also title for i3 config
@@ -222,16 +226,32 @@ class Renderer:
             5,
         )
 
+        if self.hit_point is not None:
+            pygame.draw.circle(
+                self.sim_surface,
+                self.sim_surface.GREEN,
+                self.sim_surface.vec2pix(self.hit_point),
+                20,
+                0,
+            )
+
         if self.click_start_pixel is not None and self.goal is None:
-            draw_arrow(self.sim_surface, self.click_start_pixel, self.click_end_pixel, pygame.Color("dodgerblue"), head_height=50, head_width=50)
+            draw_arrow(
+                self.sim_surface,
+                self.click_start_pixel,
+                self.click_end_pixel,
+                pygame.Color("dodgerblue"),
+                head_height=50,
+                head_width=50,
+            )
 
         if states is None and lookahead_point is None:
             self.screen.blit(self.sim_surface, (0, 0))
             pygame.display.flip()
             return
 
-        if len(states.x) < 2:
-            return
+        # if len(states.x) < 2:
+        #     return
 
         # Render planned path
         pygame.draw.lines(
@@ -392,6 +412,39 @@ class Renderer:
 
     def handle_events(self) -> None:
         """Handle pygame events by forwarding them to the display and environment vehicle."""
+
+        if self.clicked and self.click_start is None:
+            # print(f"hitpoint {self.hit_point}")
+            self.click_start = self.hit_point[:2]
+
+            print(f"click start {self.click_start}")
+
+            self.click_start_pixel = self.sim_surface.pos2pix(
+                self.hit_point[0], self.hit_point[1]
+            )
+            return
+
+            # pix_pos = pygame.Vector2(self.hit_point)
+            # self.click_start_pixel = pix_pos
+            # road_pos = self.sim_surface.pix2pos(*pix_pos)
+            # self.click_start = road_pos
+
+        if self.click_start is not None and not self.clicked:
+            # pix_pos = pygame.Vector2(event.pos)
+            # road_pos = self.sim_surface.pix2pos(*pix_pos)
+            road_pos = self.hit_point
+            self.goal = self.click_start
+            self.goal_angle = np.arctan2(
+                road_pos[1] - self.goal[1], road_pos[0] - self.goal[0]
+            )
+            # print(pix_pos)
+            return
+
+        if self.clicked:
+            pixel_point = self.sim_surface.pos2pix(self.hit_point[0], self.hit_point[1])
+            self.click_end_pixel = pygame.Vector2(pixel_point)
+            return
+
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
                 paused = True
@@ -413,7 +466,9 @@ class Renderer:
                 pix_pos = pygame.Vector2(event.pos)
                 road_pos = self.sim_surface.pix2pos(*pix_pos)
                 self.goal = self.click_start
-                self.goal_angle = np.arctan2(road_pos[1] - self.goal[1], road_pos[0] - self.goal[0])
+                self.goal_angle = np.arctan2(
+                    road_pos[1] - self.goal[1], road_pos[0] - self.goal[0]
+                )
                 print(pix_pos)
 
             elif event.type == pygame.MOUSEMOTION:

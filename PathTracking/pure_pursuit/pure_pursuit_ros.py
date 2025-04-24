@@ -18,6 +18,11 @@ from nav_msgs.msg import Odometry
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import Pose2D
 
+from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Joy
+
+from scipy.spatial.transform import Rotation as R
+
 import sys
 import pathlib
 import time
@@ -41,6 +46,18 @@ WB = 0.10  # [m] wheel base of vehicle
 MAX_STEER = 0.6  # [rad] maximum steering angle
 MOTION_RESOLUTION = 0.01  # [m] path interpolate resolution
 show_animation = False
+
+
+# copied from https://gist.github.com/TimSC/8c25ca941d614bf48ebba6b473747d72
+def LinePlaneCollision(planeNormal, planePoint, rayDirection, rayPoint, epsilon=1e-6):
+    ndotu = planeNormal.dot(rayDirection)
+    if abs(ndotu) < epsilon:
+        raise RuntimeError("no intersection or line is within plane")
+
+    w = rayPoint - planePoint
+    si = -planeNormal.dot(w) / ndotu
+    Psi = w + si * rayDirection + planePoint
+    return Psi
 
 
 class State:
@@ -280,10 +297,40 @@ class PathTracker(Node):
 
         self.pub = self.create_publisher(AckermannDriveStamped, "/car8/cmd_vel", 10)
         self.create_subscription(Pose2D, "/car8/ground_pose", self.odom_callback, 10)
+        self.create_subscription(PoseStamped, "car9/pose", self.wand_callback, 10)
+        self.create_subscription(Joy, "joy", self.joy_callback, 10)
 
         self.create_timer(0.1, self.follow_path)
 
         self.get_logger().info("Initialized PathTracker")
+
+    def joy_callback(self, msg):
+        if msg.buttons[5] == 1:
+            self.renderer.clicked = True
+        else:
+            self.renderer.clicked = False
+
+    def wand_callback(self, msg):
+        point = msg.pose.position
+        orientation = msg.pose.orientation
+
+        r = R.from_quat([orientation.x, orientation.y, orientation.z, orientation.w])
+        x_unit_vector = np.array([1, 0, 0])
+        direction_vector = r.apply(x_unit_vector)
+
+        # define the ground plane
+        planeNormal = np.array([0, 0, 1])
+        planePoint = np.array([0, 0, 0])
+
+        ray_point = np.array([point.x, point.y, point.z])
+        try:
+            hit_point = LinePlaneCollision(
+                planeNormal, planePoint, direction_vector, ray_point
+            )
+        except RuntimeError:
+            return
+
+        self.renderer.hit_point = hit_point
 
     def init_path_planning(self):
         start_x = self.start_pose.x
