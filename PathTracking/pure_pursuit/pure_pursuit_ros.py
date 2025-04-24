@@ -293,7 +293,7 @@ class PathTracker(Node):
         self.target_speed = 0.3
         self.target_course = None
 
-        self.renderer = Renderer(None, None)
+        self.renderer = Renderer(None, None, use_wand=True)
 
         self.pub = self.create_publisher(AckermannDriveStamped, "/car8/cmd_vel", 10)
         self.create_subscription(Pose2D, "/car8/ground_pose", self.odom_callback, 10)

@@ -178,9 +178,11 @@ def draw_arrow(
 
 
 class Renderer:
-    def __init__(self, path, pause_callback):
+    def __init__(self, path, pause_callback, use_wand=False):
         self.path = path
         self.pause_callback = pause_callback
+
+        self.use_wand = use_wand
 
         self.goal = None
         self.click_start = None
@@ -413,37 +415,40 @@ class Renderer:
     def handle_events(self) -> None:
         """Handle pygame events by forwarding them to the display and environment vehicle."""
 
-        if self.clicked and self.click_start is None:
-            # print(f"hitpoint {self.hit_point}")
-            self.click_start = self.hit_point[:2]
+        if self.use_wand:
+            if self.clicked and self.click_start is None:
+                # print(f"hitpoint {self.hit_point}")
+                self.click_start = self.hit_point[:2]
 
-            print(f"click start {self.click_start}")
+                print(f"click start {self.click_start}")
 
-            self.click_start_pixel = self.sim_surface.pos2pix(
-                self.hit_point[0], self.hit_point[1]
-            )
-            return
+                self.click_start_pixel = self.sim_surface.pos2pix(
+                    self.hit_point[0], self.hit_point[1]
+                )
+                return
 
-            # pix_pos = pygame.Vector2(self.hit_point)
-            # self.click_start_pixel = pix_pos
-            # road_pos = self.sim_surface.pix2pos(*pix_pos)
-            # self.click_start = road_pos
+                # pix_pos = pygame.Vector2(self.hit_point)
+                # self.click_start_pixel = pix_pos
+                # road_pos = self.sim_surface.pix2pos(*pix_pos)
+                # self.click_start = road_pos
 
-        if self.click_start is not None and not self.clicked:
-            # pix_pos = pygame.Vector2(event.pos)
-            # road_pos = self.sim_surface.pix2pos(*pix_pos)
-            road_pos = self.hit_point
-            self.goal = self.click_start
-            self.goal_angle = np.arctan2(
-                road_pos[1] - self.goal[1], road_pos[0] - self.goal[0]
-            )
-            # print(pix_pos)
-            return
+            if self.click_start is not None and not self.clicked:
+                # pix_pos = pygame.Vector2(event.pos)
+                # road_pos = self.sim_surface.pix2pos(*pix_pos)
+                road_pos = self.hit_point
+                self.goal = self.click_start
+                self.goal_angle = np.arctan2(
+                    road_pos[1] - self.goal[1], road_pos[0] - self.goal[0]
+                )
+                # print(pix_pos)
+                return
 
-        if self.clicked:
-            pixel_point = self.sim_surface.pos2pix(self.hit_point[0], self.hit_point[1])
-            self.click_end_pixel = pygame.Vector2(pixel_point)
-            return
+            if self.clicked:
+                pixel_point = self.sim_surface.pos2pix(
+                    self.hit_point[0], self.hit_point[1]
+                )
+                self.click_end_pixel = pygame.Vector2(pixel_point)
+                return
 
         for event in pygame.event.get():
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
